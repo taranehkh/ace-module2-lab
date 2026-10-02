@@ -51,9 +51,9 @@ export function getUserProfile () {
 
     let username = user.username
 
-    if (username?.match(/#{(.*)}/) !== null && utils.isChallengeEnabled(challenges.usernameXssChallenge)) {
+    if (username && /^#\{(.*)\}$/.test(username) && utils.isChallengeEnabled(challenges.usernameXssChallenge)) {
       req.app.locals.abused_ssti_bug = true
-      const code = username?.substring(2, username.length - 1)
+      const code = username.substring(2, username.length - 1)
       try {
         if (!code) {
           throw new Error('Username is null')
@@ -63,21 +63,23 @@ export function getUserProfile () {
         const backtickRegex = /^`(?:[^`\\$]|\\.|\$(?!{))*`$/
         const numericRegex = /^-?\d+(?:\.\d+)?$/
         const booleanRegex = /^(?:true|false|null|undefined)$/
+        const mathRegex = /^(?=.*\d)[\d\s+\-*/%().]+$/
 
         const isSafe = singleQuoteRegex.test(code) ||
           doubleQuoteRegex.test(code) ||
           backtickRegex.test(code) ||
           numericRegex.test(code) ||
-          booleanRegex.test(code)
+          booleanRegex.test(code) ||
+          mathRegex.test(code)
 
         if (!isSafe) {
           throw new Error('Unsafe code execution blocked')
         }
-        username = eval(code) // eslint-disable-line no-eval
+        username = String(eval(code)) // eslint-disable-line no-eval
       } catch (err) {
         username = '\\' + username
       }
-    } else {
+    } else if (username) {
       username = '\\' + username
     }
 
@@ -85,6 +87,12 @@ export function getUserProfile () {
     const theme = themes[themeKey] || themes['bluegrey-lightgreen']
 
     if (username) {
+      username = username.replace(/[\r\n\u2028\u2029]+/g, ' ')
+      username = username.replace(/\\+([#!][{\[])/g, '$1')
+      username = username.replace(/([#!][{\[])/g, '\\$1')
+      if (!username.startsWith('\\')) {
+        username = '\\' + username
+      }
       template = template.replace(/_username_/g, username)
     }
     template = template.replace(/_emailHash_/g, security.hash(user?.email))
